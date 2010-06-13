@@ -28,8 +28,18 @@
 #include "config.h"
 #include "core/debug.h"
 #include "pwm_wav.h"
-#include "ethersex_wav.h"
 #include "protocols/ecmd/ecmd-base.h"
+#ifdef VFS_PWM_WAV_SUPPORT
+  #include "core/vfs/vfs.h"
+  #define WAVEBUFFERLEN 100
+  uint8_t wavebuffer[WAVEBUFFERLEN];
+  uint8_t wavebuffer_pos = WAVEBUFFERLEN;
+  struct vfs_file_handle_t *handle=NULL;
+  uint32_t filesize = 0;
+#else
+  #include "ethersex_wav.h"
+  #define PWMSOUNDSIZE sizeof(pwmsound)
+#endif /* VFS_PWM_WAV_SUPPORT */
 
 //Sound Daten (got by MegaLOG of Ulrich Radig (see Radig webmodul ))
 
@@ -38,19 +48,33 @@
 
 uint16_t pwmbytecounter = 0;
 
+
 //Timer2 Interrupt
 ISR (TIMER0_OVF_vect)
 {
+#ifdef VFS_PWM_WAV_SUPPORT
+    if (wavebuffer_pos == 100) {
+        if (vfs_read(handle, wavebuffer, WAVEBUFFERLEN) <= 0 ){
+			pwm_stop();
+		}
+        wavebuffer_pos = 0;
+    }
+    uint8_t s = wavebuffer[wavebuffer_pos++];
+#else
 	uint8_t s = pgm_read_byte(&pwmsound[pwmbytecounter]);
+#endif /* VFS_PWM_WAV_SUPPORT */
 #ifdef DEBUG_PWM
-    	if (pwmbytecounter < 10 || ((pwmbytecounter % 1000) == 0) ) debug_printf("PWM sound %x at pos %i\n",s, pwmbytecounter);
+    	if (pwmbytecounter < 10 || ((pwmbytecounter % 1000) == 0) ) debug_printf("PWM sound %x at pos %u\n",s, pwmbytecounter);
 #endif
 	TCNT0 = 255 - SOUNDDIVISOR;
 	OCR2A = s;
 	pwmbytecounter++;
-	if(pwmbytecounter > sizeof(pwmsound))
+#ifdef VFS_PWM_WAV_SUPPORT
+	if(pwmbytecounter > filesize)
+#else
+	if(pwmbytecounter > PWMSOUNDSIZE)
+#endif
 	{
-		pwmbytecounter = 0;
 		pwm_stop();
 	}
 }
@@ -60,7 +84,11 @@ pwm_wav_init(void)
 {
 	pwmbytecounter = 0;
 #ifdef DEBUG_PWM
-    	debug_printf("PWM wav init, size: %i, %i Hz \n", sizeof(pwmsound), SOUNDFREQ );
+    #ifdef VFS_PWM_WAV_SUPPORT
+    	debug_printf("PWM vfs wav init, size: %lu, %u Hz\n", filesize, SOUNDFREQ );
+    #else
+    	debug_printf("PWM inline wav init, size: %u, %u Hz\n", PWMSOUNDSIZE, SOUNDFREQ );
+    #endif /* VFS_PWM_WAV_SUPPORT */
 #endif
 	//Set TIMER2 (PWM OC2 Pin = PD7)
 	DDRD |= (1<<7);
@@ -77,8 +105,14 @@ pwm_wav_init(void)
 void
 pwm_stop()
 {
+	pwmbytecounter = 0;
+#ifdef VFS_PWM_WAV_SUPPORT
+    wavebuffer_pos = WAVEBUFFERLEN;
+    vfs_close(handle);
+    filesize=0;
+#endif /* VFS_PWM_WAV_SUPPORT */
 #ifdef DEBUG_PWM
-    	debug_printf("PWM stop\n");
+    	debug_printf("PWM stopped\n");
 #endif
 	// timer 2 stop
 	TCCR2B = 0;
@@ -91,6 +125,18 @@ pwm_stop()
 int16_t
 parse_cmd_pwm_wav_play(char *cmd, char *output, uint16_t len)
 {
+#ifdef VFS_PWM_WAV_SUPPORT
+	if (cmd[0] != '\0' ) {
+    	handle = vfs_open(cmd+1);
+		if (handle == NULL) {
+#ifdef DEBUG_PWM
+	    	debug_printf("file '%s' not found\n", cmd);
+#endif
+    		return ECMD_ERR_READ_ERROR;
+		}
+		filesize = vfs_size(handle);
+	}
+#endif /* VFS_PWM_WAV_SUPPORT */
     pwm_wav_init();
     return ECMD_FINAL_OK;
 }
@@ -106,6 +152,6 @@ parse_cmd_pwm_wav_stop(char *cmd, char *output, uint16_t len)
 /*
   -- Ethersex META --
   block([[Sound]]/WAV support)
-  ecmd_feature(pwm_wav_play, "pwm wav", , Play wav)
+  ecmd_feature(pwm_wav_play, "pwm wav", <FILENAME>,Play wave file. Use VFS if compiled in. More details at [[Sound]])
   ecmd_feature(pwm_wav_stop, "pwm stop", , Stop wav)
 */
