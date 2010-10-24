@@ -1,6 +1,6 @@
 /*
  *
- * (c) by Alexander Neumann <alexander@bumpern.de>
+ * Copyright (c) 2009 by Dirk Tostmann <tostmann@busware.de>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License (either version 2 or
@@ -19,24 +19,23 @@
  * http://www.gnu.org/copyleft/gpl.html
  */
 
-#ifndef _GLOBAL_H
-#define _GLOBAL_H
+#ifndef DHCP_STATE_H
+#define DHCP_STATE_H
 
-#include <stdio.h>
-#include <stdint.h>
+/* state */
+struct dhcp_connection_state_t {
+    char state;
+  
+    uint8_t serverid[4];
+    
+    uint16_t lease_time[2];
+    uint16_t ipaddr[2];
+    uint16_t netmask[2];
+    uint16_t dnsaddr[2];
+    uint16_t default_router[2];
 
-typedef struct {
-    uint8_t link :1;
+    uint8_t retry_timer;
+    uint8_t retry_counter;
+};
 
-#ifdef BOOTLOADER_JUMP
-    uint8_t request_bootloader :1;
-#endif
-    uint8_t request_reset      :1;
-#ifndef TEENSY_SUPPORT
-    uint8_t request_wdreset    :1;
-#endif
-} global_status_t;
-
-extern global_status_t status;
-
-#endif /* _GLOBAL_H */
+#endif /* DHCP_STATE_H */
